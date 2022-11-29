@@ -14,10 +14,24 @@ from proto.cmdid import cmd_ids
 parsed_packets = []
 
 
+payload = None
 def parse_honkai_packet(packet):
-    payload = bytes(packet[TCP].payload)
+    # Large packets are fragmented. Stitch them together before parsing them ...
+    # This is probably buggy af :skull:
+    global payload
+    current_payload = bytes(packet[TCP].payload)
+    if int.from_bytes(current_payload[0:4], byteorder="big") == 0x1234567:
+        payload = bytearray(current_payload)
+    else:
+        if payload:
+            payload.extend(current_payload)
+        else:
+            return None
 
     if len(payload) < 38:
+        return None
+
+    if int.from_bytes(payload[-4:], byteorder="big") != 0x89abcdef:
         return None
 
     # Parse the packet.
@@ -55,7 +69,7 @@ def parse_honkai_packet(packet):
             body_parsed = None
 
     # Add to the result.
-    return {
+    res = {
         "source": "CLIENT" if packet[TCP].dport == 16100 else "SERVER",
         "payload": payload.hex(),
         "parsed": {
@@ -77,6 +91,11 @@ def parse_honkai_packet(packet):
         }
     }
 
+    if tail_magic == 0x89abcdef:
+        payload = None
+
+    return res
+    
 
 def print_packet(parsed_packet, args):
     if (parsed_packet["parsed"]["packet_name"] in args.excluded):
@@ -125,7 +144,7 @@ def sniff_packets(args):
             print_packet(parsed, args)
             parsed_packets.append(parsed)
 
-    sniff(filter="tcp port 16100", prn=handle_sniffed)
+    sniff(session=IPSession, filter="tcp port 16100", prn=handle_sniffed)
     
 
 def main(args):
