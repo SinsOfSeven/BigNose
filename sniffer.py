@@ -17,7 +17,7 @@ parsed_packets = []
 def parse_honkai_packet(packet):
     payload = bytes(packet[TCP].payload)
 
-    if len(payload) <= 38:
+    if len(payload) < 38:
         return None
 
     # Parse the packet.
