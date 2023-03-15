@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 from datetime import datetime
-
 from google.protobuf.json_format import MessageToDict
 from scapy.all import *
 from scapy.layers.inet import TCP
@@ -10,6 +9,7 @@ from colorama import Fore, Style
 
 from proto.cmdid import cmd_ids
 
+PORT = 16100
 
 parsed_packets = []
 
@@ -98,8 +98,10 @@ def parse_honkai_packet(packet):
     
 
 def print_packet(parsed_packet, args):
-    if (parsed_packet["parsed"]["packet_name"] in args.excluded):
-        return
+    if args.included:
+        if not(parsed_packet["parsed"]["packet_name"] in args.included):return
+    if args.excluded:
+        if (parsed_packet["parsed"]["packet_name"] in args.excluded):return
 
     # Time
     print(f"{datetime.now().strftime('%H:%M:%S')} | ", end="")
@@ -114,13 +116,16 @@ def print_packet(parsed_packet, args):
     else:
         print(f"{Fore.RED}UNKNOWN{Style.RESET_ALL}{' ' * 23} | ", end="")
 
-    # Content
-    print(f"{parsed_packet['parsed']['body_parsed']}")
+    #Content
+    if (args.short and parsed_packet["parsed"]["body_len"]>int(args.short)):
+        print(f"{Fore.MAGENTA}HIDDEN{Style.RESET_ALL}")
+    else: 
+        print(f'{parsed_packet["parsed"]["body_parsed"]}')
 
     # Separator
     print("-" * (os.get_terminal_size().columns - 1))
 
-
+#Seems to be broken
 def read_from_pcap(args):
     # Construct PCAP reader.
     pcap_reader = PcapReader(args.pcap)
@@ -128,7 +133,7 @@ def read_from_pcap(args):
     # Iterate packets in the PCAP and extract Honkai packets.
     for packet in pcap_reader:
         # Make sure this is a Honkai packet.
-        if packet[TCP].dport == 16100 or packet[TCP].sport == 16100:
+        if packet[TCP].dstport == 16100 or packet[TCP].srcport == 16100:
             parsed = parse_honkai_packet(packet)
 
             if parsed is not None:
@@ -148,12 +153,18 @@ def sniff_packets(args):
     
 
 def main(args):
+    if args.included and args.excluded:
+        print("--include and --exclude are mutually exclusive.")
+        return
     if args.pcap:
         # Read packets from the specified PCAP.
         read_from_pcap(args)
     else:
         sniff_packets(args)
-    
+    try:
+        if args.short:int(args.short)
+    except:
+        print("input err")
     # Save packets to JSON.
     if args.output:
         with open(args.output, "w") as f:
@@ -164,7 +175,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pcap", dest="pcap", required=False, help="The input PCAP file to read packets from. If none is specified, sniff from the network interface instead.")
     parser.add_argument("--output", dest="output", required=False, help="The output JSON file to which the packets should be written.")
-    parser.add_argument("--exclude", dest="excluded", nargs="+", required=False, default=[], help="A list of packets that should be excluded from terminal output. They will still be written to the outputted JSON file.")
+    parser.add_argument("--short", dest="short", required=False, help="Maximum body size console output.")
+    #parser.add_argument("--port", dest="port", required=False, default=16100, help="Maximum body size console output.")
+    parser.add_argument("--exclude", dest="excluded", nargs="+", required=False, help="A list of packets that should be excluded from terminal output. They will still be written to the outputted JSON file.")
+    parser.add_argument("--included", dest="included", nargs="+", required=False, help="A list of packets that should be included from terminal output. They will still be written to the outputted JSON file.")
     args = parser.parse_args()
 
     main(args)
