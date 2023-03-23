@@ -9,7 +9,6 @@ from colorama import Fore, Style
 
 from proto.cmdid import cmd_ids
 
-PORT = 16100
 
 parsed_packets = []
 
@@ -70,7 +69,7 @@ def parse_honkai_packet(packet):
 
     # Add to the result.
     res = {
-        "source": "CLIENT" if packet[TCP].dport == 16100 else "SERVER",
+        "source": "CLIENT" if packet[TCP].dport == args.port else "SERVER",
         "payload": payload.hex(),
         "parsed": {
             "head_magic": head_magic,
@@ -98,11 +97,6 @@ def parse_honkai_packet(packet):
     
 
 def print_packet(parsed_packet, args):
-    if args.included:
-        if not(parsed_packet["parsed"]["packet_name"] in args.included):return
-    if args.excluded:
-        if (parsed_packet["parsed"]["packet_name"] in args.excluded):return
-
     # Time
     print(f"{datetime.now().strftime('%H:%M:%S')} | ", end="")
 
@@ -133,7 +127,7 @@ def read_from_pcap(args):
     # Iterate packets in the PCAP and extract Honkai packets.
     for packet in pcap_reader:
         # Make sure this is a Honkai packet.
-        if packet[TCP].dstport == 16100 or packet[TCP].srcport == 16100:
+        if packet[TCP].dstport == args.port or packet[TCP].srcport == args.port:
             parsed = parse_honkai_packet(packet)
 
             if parsed is not None:
@@ -146,10 +140,25 @@ def sniff_packets(args):
         parsed = parse_honkai_packet(packet)
 
         if parsed is not None:
+            if args.included:
+                if not(parsed["parsed"]["packet_name"] in args.included):return
+            if args.excluded:
+                if (parsed["parsed"]["packet_name"] in args.excluded):return
             print_packet(parsed, args)
-            parsed_packets.append(parsed)
+            if not args.slim:
+                parsed_packets.append(parsed)
+            else:
+                if args.included:
+                    if (len(args.included) == 1):
+                        parsed_packets.append(parsed["parsed"]["body_parsed"])
+                else:
+                    #can be modified if needed for more or less information
+                    parsed_packets.append({
+                        "message":parsed["parsed"]["packet_name"],
+                        "content":parsed["parsed"]["body_parsed"]
+                    })
 
-    sniff(session=IPSession, filter="tcp port 16100", prn=handle_sniffed)
+    sniff(session=IPSession, filter="tcp port "+str(args.port), prn=handle_sniffed)
     
 
 def main(args):
@@ -168,7 +177,7 @@ def main(args):
     # Save packets to JSON.
     if args.output:
         with open(args.output, "w") as f:
-            json.dump(parsed_packets, f, indent=4)
+            json.dump(parsed_packets, f, indent=2)
 
 
 if __name__ == "__main__":
@@ -176,7 +185,8 @@ if __name__ == "__main__":
     parser.add_argument("--pcap", dest="pcap", required=False, help="The input PCAP file to read packets from. If none is specified, sniff from the network interface instead.")
     parser.add_argument("--output", dest="output", required=False, help="The output JSON file to which the packets should be written.")
     parser.add_argument("--short", dest="short", required=False, help="Maximum body size console output.")
-    #parser.add_argument("--port", dest="port", required=False, default=16100, help="Maximum body size console output.")
+    parser.add_argument("--port", dest="port", required=False, default=16100)
+    parser.add_argument("--slim", dest="slim", required=False, default=True, help="Bool, enables slim data output, Default=True") # Setting Value to false will force include all packet meta data, default is to only include body_parsed
     parser.add_argument("--exclude", dest="excluded", nargs="+", required=False, help="A list of packets that should be excluded from terminal output. They will still be written to the outputted JSON file.")
     parser.add_argument("--included", dest="included", nargs="+", required=False, help="A list of packets that should be included from terminal output. They will still be written to the outputted JSON file.")
     args = parser.parse_args()
